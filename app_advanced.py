@@ -16,7 +16,6 @@ st.info("💡 **Petunjuk Penggunaan:** Silakan isi atau ubah nama kegiatan dan a
 # ==========================================
 # 1. MEMBUAT DATABASE KOSONGAN / EDITABLE (20 ROWS)
 # ==========================================
-# Membuat 20 baris awal. Baris 1-3 diberi contoh isi agar AI punya data awal untuk belajar, sisanya kosongan.
 init_rows = 20
 nama_awal = ["Gaji Guru & Staf (Contoh)", "Buku & Kitab (Contoh)", "Listrik & Internet (Contoh)"] + ["(Silakan isi kegiatan di sini)"] * (init_rows - 3)
 anggaran_awal = [130000000, 7500000, 11000000] + [0] * (init_rows - 3)
@@ -30,25 +29,22 @@ default_data = pd.DataFrame({
     'persen_biaya_kantor': kantor_awal
 })
 
-# Menampilkan tabel interaktif ala Excel di layar utama
 st.write("### 📝 Input & Edit Rencana Anggaran Sekolah (Format Excel-Mini)")
 edited_df = st.data_editor(
     default_data,
     column_config={
         "nama_kegiatan": st.column_config.TextColumn("Nama Kegiatan / Pos Anggaran", width="medium"),
         "anggaran_diajukan": st.column_config.NumberColumn("Anggaran Diajukan (Rp)", min_value=0, format="Rp %d"),
-        "relevansi_mutu": st.column_config.NumberColumn("Relevansi Mutu Siswa (Skala 1-5)", min_value=1, max_value=5, help="1=Sangat Rendah, 5=Sangat Tinggi"),
-        "persen_biaya_kantor": st.column_config.NumberColumn("Persen Biaya Kantor (Desimal)", min_value=0.0, max_value=1.0, format="%.2f", help="Contoh: 0.10 untuk 10% potongan kantor")
+        "relevansi_mutu": st.column_config.NumberColumn("Relevansi Mutu Siswa (Skala 1-5)", min_value=1, max_value=5),
+        "persen_biaya_kantor": st.column_config.NumberColumn("Persen Biaya Kantor (Desimal)", min_value=0.0, max_value=1.0, format="%.2f")
     },
     disabled=[],
-    num_rows="fixed", # Mengunci di 20 baris agar rapi
+    num_rows="fixed",
     use_container_width=True
 )
 
-# Menyaring hanya baris yang diisi anggaran oleh user untuk diproses AI
 data_aktif = edited_df[edited_df['anggaran_diajukan'] > 0].copy()
 
-# Pengaman jika user belum mengisi anggaran sama sekali
 if len(data_aktif) == 0:
     st.warning("⚠️ Silakan isi nilai 'Anggaran Diajukan' pada tabel di atas untuk mengaktifkan kalkulasi Engine AI.")
     st.stop()
@@ -56,7 +52,6 @@ if len(data_aktif) == 0:
 # ==========================================
 # 2. RUNNING ENGINE ML (CLUSTERING & KLASIFIKASI ADAPTIF)
 # ==========================================
-# Menentukan jumlah klaster secara fleksibel berdasarkan baris yang diisi
 n_samples = len(data_aktif)
 n_clusters = min(3, n_samples)
 
@@ -64,7 +59,6 @@ X_cluster = data_aktif[['anggaran_diajukan', 'relevansi_mutu']]
 kmeans = KMeans(n_clusters=n_clusters, n_init='auto', random_state=42)
 data_aktif['klaster_anggaran'] = kmeans.fit_predict(X_cluster)
 
-# Aturan filter otomatis untuk pelabelan training data
 data_aktif['status_efisiensi_historis'] = np.where(
     (data_aktif['persen_biaya_kantor'] <= 0.20) & (data_aktif['relevansi_mutu'] >= 3), 1, 0
 )
@@ -93,7 +87,6 @@ siswa_simulasi = st.sidebar.slider("Proyeksi Jumlah Siswa:", min_value=100, max_
 data_bersih = data_aktif[data_aktif['rekomendasi_ai'] == 1]
 baseline_bersih = data_bersih['anggaran_diajukan'].sum() if len(data_bersih) > 0 else data_aktif['anggaran_diajukan'].sum()
 
-# Melatih kurva regresi adaptif dari total anggaran yang diinput user
 X_reg = np.array([[100], [300], [500], [800], [1000]])
 y_reg = np.array([
     [baseline_bersih], 
@@ -120,7 +113,7 @@ total_bersih_dinamis = int(anggaran_ramalan_total)
 hemat_dinamis = total_awal_dinamis - total_bersih_dinamis
 
 # ==========================================
-# 6. TAMPILAN DASHBOARD UTAMA (LIVE UPDATE)
+# 6. TAMPILAN DASHBOARD UTAMA & KARTU METRIK
 # ==========================================
 st.markdown("---")
 st.write(f"### 📊 Status Simulasi Kapasitas: **{siswa_simulasi} Siswa**")
@@ -134,6 +127,35 @@ st.markdown("---")
 st.success(f"🎯 ESTIMASI BIAYA NYATA PER SISWA (UNIT COST DINAMIS): Rp {int(unit_cost_dinamis):,} / Siswa per Tahun")
 st.markdown("---")
 
+# ==========================================
+# 7. NEW FEAT: MODUL VISUALISASI GRAFIK MEWAH (FASE 2)
+# ==========================================
+st.write("### 📈 Visualisasi Analisis Keuangan Berbasis AI")
+graph_col1, graph_col2 = st.columns(2)
+
+with graph_col1:
+    st.write("📋 **Komposisi Total Anggaran Berdasarkan Sensor AI (Rp)**")
+    # Mengelompokkan anggaran berdasarkan status rekomendasi untuk grafik batang
+    chart_data = data_dinamis.groupby('status_rekomendasi')[f'anggaran_diajukan_simulasi'].sum().reset_index()
+    chart_data = chart_data.set_index('status_rekomendasi')
+    st.bar_chart(chart_data, use_container_width=True)
+
+with graph_col2:
+    st.write("📉 **Kurva Tren Penurunan Unit Cost (Efisiensi Skala Ekonomi)**")
+    # Membuat simulasi titik-titik kurva untuk grafik garis
+    rentang_siswa = list(range(100, 1050, 50))
+    list_unit_cost = []
+    for s in rentang_siswa:
+        pred_total = model_regresi.predict(np.array([[s]]))[0][0]
+        list_unit_cost.append(int(pred_total / s))
+    
+    df_line = pd.DataFrame({
+        'Jumlah Siswa': rentang_siswa,
+        'Unit Cost (Rp)': list_unit_cost
+    }).set_index('Jumlah Siswa')
+    st.line_chart(df_line, use_container_width=True)
+
+st.markdown("---")
 st.write("📋 **Rincian Rekomendasi Hasil Skrining AI terhadap Data Input Anda:**")
 st.dataframe(
     data_dinamis[['nama_kegiatan', 'anggaran_diajukan_simulasi', 'status_rekomendasi']]
