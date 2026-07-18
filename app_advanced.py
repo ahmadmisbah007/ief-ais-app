@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LinearRegression
 
-st.set_page_config(page_title="IEF-AIS Advanced", layout="wide")
+st.set_page_config(page_title="IEF-AIS Advanced Pro", layout="wide")
 
 st.title("🚀 INTEGRATED EDUCATIONAL FINANCIAL AI SYSTEM (IEF-AIS) - ADVANCED")
 st.subheader("Sistem Skrining & Kalkulasi Unit Cost Berbasis TRIPLE-ML — Bidang MPI")
@@ -76,10 +76,20 @@ else:
 data_aktif['status_rekomendasi'] = data_aktif['rekomendasi_ai'].map({1: '✅ APPROVE', 0: '❌ REJECT (Red Flag)'})
 
 # ==========================================
-# 3. INTERAKSI SLIDER (INTERVAL 100 - 1000 SISWA)
+# 3. INTERAKSI SIDEBAR (DENGAN INPUT KESEJAHTERAAN GURU - FASE 3)
 # ==========================================
 st.sidebar.header("🔮 PENGATURAN SIMULASI (Dinamis)")
 siswa_simulasi = st.sidebar.slider("Proyeksi Jumlah Siswa:", min_value=100, max_value=1000, value=100, step=50)
+
+st.sidebar.markdown("---")
+st.sidebar.header("💰 MODUL KESEJAHTERAAN GURU")
+gaji_layak = st.sidebar.number_input("Target Honor Layak Guru / Bulan (Rp):", min_value=1000000, value=2500000, step=250000)
+rasio_guru_siswa = st.sidebar.slider("Rasio Guru : Siswa (1 Guru banding X Siswa):", min_value=10, max_value=20, value=12)
+
+# Hitung perkiraan jumlah guru berdasarkan kapasitas siswa simulasi
+jumlah_guru_simulasi = max(1, int(siswa_simulasi / rasio_guru_siswa))
+# Hitung total kebutuhan anggaran gaji setahun berdasarkan target kelayakan honor baru
+total_gaji_layak_tahunan = jumlah_guru_simulasi * gaji_layak * 12
 
 # ==========================================
 # 4. [PILAR 3] REGRESI: Tren Kurva Dinamis & Efisiensi Skala
@@ -100,17 +110,26 @@ model_regresi.fit(X_reg, y_reg)
 
 anggaran_ramalan_total = model_regresi.predict(np.array([[siswa_simulasi]]))[0][0]
 rasio_skala = anggaran_ramalan_total / baseline_bersih if baseline_bersih > 0 else 1.0
-unit_cost_dinamis = anggaran_ramalan_total / siswa_simulasi
 
 # ==========================================
-# 5. INTEGRASI HASIL SECARA DINAMIS
+# 5. INTEGRASI HASIL & KESEJAHTERAAN GURU
 # ==========================================
 data_dinamis = data_aktif.copy()
 data_dinamis['anggaran_diajukan_simulasi'] = (data_dinamis['anggaran_diajukan'] * rasio_skala).astype(int)
 
+# Ganti komponen gaji di tabel dinamis dengan angka simulasi kesejahteraan yang diinput di sidebar
+is_gaji = data_dinamis['nama_kegiatan'].str.contains('Gaji|Guru|Staf|Honor', case=False, na=False)
+if is_gaji.any():
+    data_dinamis.loc[is_gaji, 'anggaran_diajukan_simulasi'] = total_gaji_layak_tahunan
+
+# Hitung ulang total bersih akhir setelah disuntik anggaran kesejahteraan guru yang baru
 total_awal_dinamis = int(data_aktif['anggaran_diajukan'].sum() * rasio_skala)
-total_bersih_dinamis = int(anggaran_ramalan_total)
-hemat_dinamis = total_awal_dinamis - total_bersih_dinamis
+total_bersih_dinamis = int(data_dinamis[data_dinamis['rekomendasi_ai'] == 1]['anggaran_diajukan_simulasi'].sum())
+hemat_dinamis = max(0, total_awal_dinamis - total_bersih_dinamis)
+
+# Hitung Unit Cost dan SPP Bulanan Aktual
+unit_cost_dinamis = total_bersih_dinamis / siswa_simulasi
+spp_bulanan_ideal = unit_cost_dinamis / 12
 
 # ==========================================
 # 6. TAMPILAN DASHBOARD UTAMA & KARTU METRIK
@@ -124,30 +143,38 @@ col2.metric("Proyeksi Anggaran Bersih AI", f"Rp {total_bersih_dinamis:,}")
 col3.metric("Potensi Dana Diselamatkan", f"Rp {hemat_dinamis:,}")
 
 st.markdown("---")
-st.success(f"🎯 ESTIMASI BIAYA NYATA PER SISWA (UNIT COST DINAMIS): Rp {int(unit_cost_dinamis):,} / Siswa per Tahun")
+col_spp1, col_spp2, col_spp3 = st.columns(3)
+with col_spp1:
+    st.success(f"🎯 UNIT COST DINAMIS:\n\n**Rp {int(unit_cost_dinamis):,}** / Anak / Tahun")
+with col_spp2:
+    st.info(f"🕌 REKOMENDASI SPP BULANAN (BEP):\n\n**Rp {int(spp_bulanan_ideal):,}** / Anak / Bulan")
+with col_spp3:
+    st.warning(f"👥 KEBUTUHAN SDM GURU:\n\n**{jumlah_guru_simulasi} Orang Guru** (Rasio 1:{rasio_guru_siswa})")
+
 st.markdown("---")
 
 # ==========================================
-# 7. NEW FEAT: MODUL VISUALISASI GRAFIK MEWAH (FASE 2)
+# 7. MODUL VISUALISASI GRAFIK MEWAH
 # ==========================================
 st.write("### 📈 Visualisasi Analisis Keuangan Berbasis AI")
 graph_col1, graph_col2 = st.columns(2)
 
 with graph_col1:
     st.write("📋 **Komposisi Total Anggaran Berdasarkan Sensor AI (Rp)**")
-    # Mengelompokkan anggaran berdasarkan status rekomendasi untuk grafik batang
-    chart_data = data_dinamis.groupby('status_rekomendasi')[f'anggaran_diajukan_simulasi'].sum().reset_index()
+    chart_data = data_dinamis.groupby('status_rekomendasi')['anggaran_diajukan_simulasi'].sum().reset_index()
     chart_data = chart_data.set_index('status_rekomendasi')
     st.bar_chart(chart_data, use_container_width=True)
 
 with graph_col2:
     st.write("📉 **Kurva Tren Penurunan Unit Cost (Efisiensi Skala Ekonomi)**")
-    # Membuat simulasi titik-titik kurva untuk grafik garis
     rentang_siswa = list(range(100, 1050, 50))
     list_unit_cost = []
     for s in rentang_siswa:
         pred_total = model_regresi.predict(np.array([[s]]))[0][0]
-        list_unit_cost.append(int(pred_total / s))
+        # Penyesuaian simulasi gaji di dalam kurva
+        g_sim = max(1, int(s / rasio_guru_siswa)) * gaji_layak * 12
+        total_gabungan = pred_total + g_sim
+        list_unit_cost.append(int(total_gabungan / s))
     
     df_line = pd.DataFrame({
         'Jumlah Siswa': rentang_siswa,
